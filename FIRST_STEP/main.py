@@ -5,9 +5,9 @@ from fastapi import FastAPI, Query, Body, HTTPException, Path, status, Depends
 from pydantic import BaseModel, Field, field_validator, EmailStr, ConfigDict
 from typing import Optional, List, Union, Literal
 from math import ceil
-from sqlalchemy import create_engine, Integer, String, Text, DateTime, select, func, UniqueConstraint
+from sqlalchemy import create_engine, Integer, String, Text, DateTime, select, func, UniqueConstraint, CheckConstraint, Index, ForeignKey, Table, Column
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
-from sqlalchemy.orm import sessionmaker, Session, DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import sessionmaker, Session, DeclarativeBase, Mapped, mapped_column, relationship
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./blog.db")
 print("Conectado a: ", DATABASE_URL)
@@ -23,14 +23,59 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, clas
 class Base(DeclarativeBase):
     pass
 
-class PostORM(Base):
-    __tablename__ = "posts"
-    __table_args__ = (UniqueConstraint("title", name="unique_post_title"),)
+post_tags = Table(
+    "post_tags",
+    Base.metadata,
+    Column("post_id", ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True),
+    Column("tag_id", ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True),
+)
+
+class AuthorORM(Base):
+    __tablename__ = "authors"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    title: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    email: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+
+    # Relacion Muchos
+    posts: Mapped[List[PostORM]] = relationship(back_populates="author")
+
+class TagORM(Base):
+    __tablename__ = "tags"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(30), unique=True, index=True)
+
+    posts: Mapped[List["PostORM"]] = relationship(
+        secondary=post_tags,
+        back_populates="tags",
+        lazy="selectin",
+    )
+
+
+class PostORM(Base):
+    __tablename__ = "posts"
+    __table_args__ = (
+        UniqueConstraint("title", "content", name="unique_post_title_content"),
+        CheckConstraint("trim(title) <> ''", name="check_title_not_empty"),
+        Index("icx_id_title", "id", "title")
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(100), nullable=False, index=True, unique=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now(timezone.utc))
+
+    # Relacion uno
+    author_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("authors.id"))
+    author: Mapped[Optional["AuthorORM"]] = relationship(back_populates="posts")
+
+    tags: Mapped[List[TagORM]] = relationship(
+        secondary=post_tags,
+        back_populates="posts",
+        lazy="selectin",
+        passive_deletes=True
+    )
 
 Base.metadata.create_all(bind=engine) # dev
 
@@ -207,11 +252,15 @@ def create_post(post: PostCreate, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(new_post)
         return new_post
-    except IntegrityError:
+    except IntegrityError as e:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El titulo ya existe")
-    except SQLAlchemyError:
+        print(e.orig)
+        print(e)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"{"titulo vacio" if str(e.orig).find("check_title_not_empty") else "El titulo ya existe o el contenido"}")
+
+    except SQLAlchemyError as e:
         db.rollback()
+        print(e)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al crear post")
 
 
