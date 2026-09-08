@@ -5,18 +5,21 @@ from fastapi import FastAPI, Query, Body, HTTPException, Path, status, Depends
 from pydantic import BaseModel, Field, field_validator, EmailStr, ConfigDict
 from typing import Optional, List, Union, Literal
 from math import ceil
-from sqlalchemy import create_engine, Integer, String, Text, DateTime, select, func, UniqueConstraint, CheckConstraint, Index, ForeignKey, Table, Column
+from sqlalchemy import (create_engine, Integer, String, Text, DateTime, select,
+                        func, UniqueConstraint, CheckConstraint, Index, ForeignKey,
+                        Table, Column)
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
-from sqlalchemy.orm import sessionmaker, Session, DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import sessionmaker, Session, DeclarativeBase, Mapped, mapped_column, relationship, selectinload, joinedload
+from dotenv import load_dotenv
 
+load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./blog.db")
-print("Conectado a: ", DATABASE_URL)
 
 engine_kwargs = {}
 if DATABASE_URL.startswith("sqlite"):
     engine_kwargs["connect_args"] = {"check_same_thread": False}
 
-engine = create_engine(DATABASE_URL, echo=True, future=True, **engine_kwargs)
+engine = create_engine(DATABASE_URL, echo=True, future=True, pool_size=10, pool_pre_ping=True, **engine_kwargs)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
 
@@ -56,13 +59,13 @@ class TagORM(Base):
 class PostORM(Base):
     __tablename__ = "posts"
     __table_args__ = (
-        UniqueConstraint("title", "content", name="unique_post_title_content"),
+        UniqueConstraint("title", name="unique_post_title"),
         CheckConstraint("trim(title) <> ''", name="check_title_not_empty"),
         Index("icx_id_title", "id", "title")
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    title: Mapped[str] = mapped_column(String(100), nullable=False, index=True, unique=True)
+    title: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now(timezone.utc))
 
@@ -219,15 +222,24 @@ def list_posts(text: Optional[str] = Query(default=None, deprecated=True, descri
 
 
 @app.get("/posts/by-tags", response_model=List[PostPublic])
-def filter_by_tags(tags: List[str] = Query(..., min_length=2, description="Una o mas etiquetas Ejemplo: ?tags=python&tags=fastapi")):
-    tags_lower = [tag.lower() for tag in tags]
-    return [
-        post for post in BLOG_POST
-        if any(
-            tag["name"].lower() in tags_lower
-            for tag in post.get('tags', [])
-        )
-    ]
+def filter_by_tags(tags: List[str] = Query(..., min_length=1, description="Una o mas etiquetas Ejemplo: ?tags=python&tags=fastapi"),
+                   db: Session = Depends(get_db)):
+    normalize_tag_names = [tag.strip().lower() for tag in tags if tag.strip()]
+    if not normalize_tag_names:
+        return []
+
+    post_list = (
+        select(PostORM)
+        .options(
+            selectinload(PostORM.tags),
+            joinedload(PostORM.author)
+        ).where(PostORM.tags.any(
+            func.lower(TagORM.name).in_(normalize_tag_names))
+        ).order_by(PostORM.id.asc())
+    )
+
+    posts = db.execute(post_list).scalars().all()
+    return posts
 
 @app.get("/posts/{post_id}", response_model=Union[PostPublic, PostSummary], response_description="Post encontrado")
 def get_post(post_id: int = Path(..., ge=1, title="ID del post", description="Identificador entero del post. Debe se mayor o igual a 1", examples=[1]),
