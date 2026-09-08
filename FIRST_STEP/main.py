@@ -91,11 +91,13 @@ app = FastAPI(title="Mini Blog")
 class Tag(BaseModel):
     name: str = Field(..., min_length=2, max_length=30, description="Nombre de la etiqueta")
 
+    model_config = ConfigDict(from_attributes=True)
 
 class Author(BaseModel):
     name: str
     email: EmailStr
 
+    model_config = ConfigDict(from_attributes=True)
 
 class PostBase(BaseModel):
     title: str
@@ -103,6 +105,7 @@ class PostBase(BaseModel):
     tags: Optional[List[Tag]] = Field(default_factory=list) # Crea una lista por cada objeto que se crea en el programa
     author: Optional[Author] = None
 
+    model_config = ConfigDict(from_attributes=True)
 
 class PostCreate(BaseModel):
     title: str = Field(
@@ -246,7 +249,32 @@ def get_post(post_id: int = Path(..., ge=1, title="ID del post", description="Id
 
 @app.post("/posts", response_model=PostPublic, response_description="Post creado (OK)", status_code=status.HTTP_201_CREATED)
 def create_post(post: PostCreate, db: Session = Depends(get_db)):
-    new_post = PostORM(title=post.title, content=post.content)
+    author_obj = None
+    if post.author:
+        author_obj = db.execute(
+            select(AuthorORM).where(AuthorORM.email == post.author.email)
+        ).scalar_one_or_none()
+
+        if not author_obj:
+            author_obj = AuthorORM(name=post.author.name,
+                                   email=post.author.email)
+            db.add(author_obj)
+            db.flush()
+
+
+    new_post = PostORM(title=post.title, content=post.content,
+                       author=author_obj)
+
+    for tag in post.tags:
+        tag_obj = db.execute(select(TagORM).where(TagORM.name.ilike(tag.name))
+                             ).scalar_one_or_none()
+        if not tag_obj:
+            tag_obj = TagORM(name=tag.name)
+            db.add(tag_obj)
+            db.flush()
+
+        new_post.tags.append(tag_obj)
+
     try:
         db.add(new_post)
         db.commit()
