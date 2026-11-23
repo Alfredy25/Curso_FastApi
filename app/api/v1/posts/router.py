@@ -7,8 +7,19 @@ from .schemas import (PostPublic, PaginatedPost, PostCreate, PostUpdate, PostSum
 from .repository import PostRepository
 from sqlalchemy.orm import Session
 from math import ceil
+from app.core.security import oauth2_scheme
 
 router = APIRouter(prefix="/posts", tags=["posts"])
+
+def get_fake_user():
+    return {
+        "username": "alfredo",
+        "role": "admin"
+    }
+
+@router.get("/me")
+def read_me(user: dict = Depends(get_fake_user)):
+    return {"user": user}
 
 @router.get("", response_model=PaginatedPost)
 def list_posts(text: Optional[str] = Query(default=None, deprecated=True, description="Parametro obsoleto usa 'query o seach' en su lugar."),
@@ -118,3 +129,8 @@ def delete_post(post_id: int, db: Session = Depends(get_db)):
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Error al eliminar post")
+
+
+@router.get("/secure")
+def secure_endpoint(token: str = Depends(oauth2_scheme)):
+    return {"message": "Acceso con token", "token_recibido": token}
