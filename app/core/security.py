@@ -3,6 +3,10 @@ from typing import Optional
 import jwt
 from fastapi.security import OAuth2PasswordBearer
 import os
+from fastapi import Depends, HTTPException, status
+#                         Token venció,         ?
+from jwt.exceptions import ExpiredSignatureError, InvalidTokenError, InvalidSignatureError
+
 
 SECRET_KEY = os.getenv("SECRET_KEY", "change-me-in-prod")
 ALGORITHM = "HS256"
@@ -20,6 +24,32 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     return token
 
 def decode_token(token: str) -> dict:
-    pass
+    playload = jwt.decode(jwt=token, key=SECRET_KEY, algorithms=[ALGORITHM])
+    return playload
+
+def get_current_user(token:str = Depends(oauth2_scheme)):
+    credentials_exc = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="not authenticated",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    try:
+        playload = decode_token(token)
+        sub: Optional[str] = playload.get("sub")
+        username: Optional[str] = playload.get("username")
+        if not sub or not username:
+            raise credentials_exc
+
+        return {"email": sub, "username": username}
+    except ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail = "Expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except InvalidTokenError:
+        raise credentials_exc
+
 
 
