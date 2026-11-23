@@ -13,14 +13,8 @@ class PostRepository:
         stmt = select(PostORM).where(PostORM.id == post_id)
         return self.db.execute(stmt).scalar_one_or_none()
 
-    def search(
-            self,
-            query: Optional[str],
-            order_by: str,
-            direction: str,
-            page: int,
-            per_page: int
-    ) -> Tuple[int, List[PostORM]]:
+    def search(self, query: Optional[str], order_by: str,
+               direction: str, page: int, per_page: int) -> Tuple[int, List[PostORM]]:
         results = select(PostORM)
         if query:
             results = results.where(func.lower(PostORM.title).like(f"%{query}%"))
@@ -56,8 +50,10 @@ class PostRepository:
             .options(
                 selectinload(PostORM.tags),
                 joinedload(PostORM.author)
-            ).where(PostORM.tags.any(
-                func.lower(TagORM.name).in_(normalize_tag_names))
+            ).where(
+                PostORM.tags.any(
+                    func.lower(TagORM.name).in_(normalize_tag_names)
+                )
             ).order_by(PostORM.id.asc())
         )
 
@@ -79,8 +75,11 @@ class PostRepository:
         return author_obj
 
     def ensure_tag(self, name:str) -> TagORM:
-        tag_obj = self.db.execute(select(TagORM).where(TagORM.name.ilike(name))
-                             ).scalar_one_or_none()
+        tag_obj = self.db.execute(
+            select(TagORM).where(
+                TagORM.name.ilike(name)
+            )
+        ).scalar_one_or_none()
         if tag_obj:
             return tag_obj
 
