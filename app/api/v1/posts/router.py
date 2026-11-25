@@ -7,19 +7,9 @@ from .schemas import (PostPublic, PaginatedPost, PostCreate, PostUpdate, PostSum
 from .repository import PostRepository
 from sqlalchemy.orm import Session
 from math import ceil
-from app.core.security import oauth2_scheme
+from app.core.security import oauth2_scheme, get_current_user
 
 router = APIRouter(prefix="/posts", tags=["posts"])
-
-def get_fake_user():
-    return {
-        "username": "alfredo",
-        "role": "admin"
-    }
-
-@router.get("/me")
-def read_me(user: dict = Depends(get_fake_user)):
-    return {"user": user}
 
 @router.get("", response_model=PaginatedPost)
 def list_posts(text: Optional[str] = Query(default=None, deprecated=True, description="Parametro obsoleto usa 'query o seach' en su lugar."),
@@ -73,7 +63,7 @@ def get_post(post_id: int = Path(..., ge=1, title="ID del post", description="Id
 
 
 @router.post("", response_model=PostPublic, response_description="Post creado (OK)", status_code=status.HTTP_201_CREATED)
-def create_post(post: PostCreate, db: Session = Depends(get_db)):
+def create_post(post: PostCreate, db: Session = Depends(get_db), user = Depends(get_current_user)):
     repository = PostRepository(db=db)
 
     try:
@@ -99,7 +89,7 @@ def create_post(post: PostCreate, db: Session = Depends(get_db)):
 
 @router.put("/{post_id}", response_model=PostPublic, response_description="Post actualizado",
          response_model_exclude_none=True)
-def update_post(post_id: int, data: PostUpdate, db: Session = Depends(get_db)):
+def update_post(post_id: int, data: PostUpdate, db: Session = Depends(get_db), user = Depends(get_current_user)):
     repository = PostRepository(db=db)
     post = repository.get(post_id)
     if not post:
@@ -117,7 +107,7 @@ def update_post(post_id: int, data: PostUpdate, db: Session = Depends(get_db)):
 
 
 @router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT, response_description="Post eliminado")
-def delete_post(post_id: int, db: Session = Depends(get_db)):
+def delete_post(post_id: int, db: Session = Depends(get_db), user = Depends(get_current_user)):
     repository = PostRepository(db=db)
     post = repository.get(post_id)
 
