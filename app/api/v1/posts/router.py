@@ -8,8 +8,27 @@ from .repository import PostRepository
 from sqlalchemy.orm import Session
 from math import ceil
 from app.core.security import oauth2_scheme, get_current_user
+import time
+import asyncio
+import threading
 
 router = APIRouter(prefix="/posts", tags=["posts"])
+
+async def tomar_archivos():
+    time.sleep(6)
+
+
+@router.get("/sync")
+def sync_endpoint():
+    print("SYNC theread: ", threading.current_thread().name)
+    time.sleep(8)
+    return {"message": "Función síncrona termino"}
+
+@router.get("/async")
+async def async_endpoint():
+    print("SYNC theread: ", threading.current_thread().name)
+    await tomar_archivos()
+    return {"message": "Función asíncrona termino se tomaron los archivos"}
 
 @router.get("", response_model=PaginatedPost)
 def list_posts(text: Optional[str] = Query(default=None, deprecated=True, description="Parametro obsoleto usa 'query o seach' en su lugar."),
